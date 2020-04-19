@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 from torch.nn.parallel import DataParallel
-import cPickle as pickle
+import pickle
 import time
 import argparse
 
@@ -78,9 +78,10 @@ class Config(object):
         parser.add_argument('--exp_dir', type=str, default='')
         parser.add_argument('--exp_subpath', type=str, default='deepmar_resnet50')
         parser.add_argument('--log_to_file', type=str2bool, default=True)
-        parser.add_argument('--steps_per_log', type=int, default=20)
+        parser.add_argument('--steps_per_log', type=int, default=50)
         parser.add_argument('--epochs_per_val', type=int, default=10)
         parser.add_argument('--epochs_per_save', type=int, default=50)
+        parser.add_argument('--ckpt_name', type=str, default='ckpt')
         parser.add_argument('--run', type=int, default=1)
         args = parser.parse_args()
         
@@ -100,21 +101,21 @@ class Config(object):
         datasets['rap'] = './dataset/rap/rap_dataset.pkl'
         datasets['pa100k'] = './dataset/pa100k/pa100k_dataset.pkl'
         datasets['rap2'] = './dataset/rap2/rap2_dataset.pkl'
-        datasets['trans'] = '/content/pedestrian-attribute-recognition-pytorch/dataset/trans/trans_dataset.pkl'
+        datasets['trans'] = 'dataset/trans/trans_dataset.pkl'
         partitions = dict()
         partitions['peta'] = './dataset/peta/peta_partition.pkl'
         partitions['rap'] = './dataset/rap/rap_partition.pkl'
         partitions['pa100k'] = './dataset/pa100k/pa100k_partition.pkl'
         partitions['rap2'] = './dataset/rap2/rap2_partition.pkl'
-        partitions['trans'] = '/content/pedestrian-attribute-recognition-pytorch/dataset/trans/trans_partition.pkl'
+        partitions['trans'] = 'dataset/trans/trans_partition.pkl'
         
         self.dataset_name = args.dataset
-        if not datasets.has_key(args.dataset) or not partitions.has_key(args.dataset):
-            print "Please select the right dataset name."
-            raise ValueError
-        else:
-            self.dataset = datasets[args.dataset]
-            self.partition = partitions[args.dataset]
+        # if not datasets.has_key(args.dataset) or not partitions.has_key(args.dataset):
+        #     print("Please select the right dataset name.")
+        #     raise ValueError
+        # else:
+        self.dataset = datasets[args.dataset]
+        self.partition = partitions[args.dataset]
         self.partition_idx = args.partition_idx
         self.split = args.split
         self.test_split = args.test_split
@@ -139,14 +140,15 @@ class Config(object):
         self.ckpt_file = args.ckpt_file
         if self.resume:
             if self.ckpt_file == '':
-                print 'Please input the ckpt_file if you want to resume training'
+                print('Please input the ckpt_file if you want to resume training')
                 raise ValueError
         self.load_model_weight = args.load_model_weight
         self.model_weight_file = args.model_weight_file
         if self.load_model_weight:
             if self.model_weight_file == '':
-                print 'Please input the model_weight_file if you want to load model weight'
+                print('Please input the model_weight_file if you want to load model weight')
                 raise ValueError
+        self.ckpt_name = args.ckpt_name
         self.test_only = args.test_only
         self.exp_dir = args.exp_dir
         self.exp_subpath = args.exp_subpath
@@ -216,7 +218,7 @@ train_set = AttDataset(
     transform = transform)
 
 num_att = len(train_set.dataset['selected_attribute'])
-cfg.model_kwargs['num_att'] = 6
+cfg.model_kwargs['num_att'] = 9
 
 train_loader = torch.utils.data.DataLoader(
     dataset = train_set,
@@ -257,7 +259,7 @@ if rate is None:
     weight_neg = [1 for i in range(num_att)]
 else:
     if len(rate) != num_att:
-        print "the length of rate should be equal to %d" % (num_att)
+        print("the length of rate should be equal to %d" % (num_att))
         raise ValueError
     weight_pos = []
     weight_neg = []
@@ -310,18 +312,20 @@ feat_func_att = DeepMAR_ResNet50_ExtractFeature(model=model_w)
 def attribute_evaluate_subfunc(feat_func, test_set, **test_kwargs): 
     """ evaluate the attribute recognition precision """
     result = attribute_evaluate(feat_func, test_set, **test_kwargs)
-    print '-' * 60
-    print 'Evaluation on %s set:' % (cfg.test_split)
-    print 'Label-based evaluation: \n mA: %.4f'%(np.mean(result['label_acc']))
-    print 'Instance-based evaluation: \n Acc: %.4f, Prec: %.4f, Rec: %.4f, F1: %.4f' \
-        %(result['instance_acc'], result['instance_precision'], result['instance_recall'], result['instance_F1'])
-    print '-' * 60
+    print('-' * 60)
+    print('Evaluation on %s set:' % (cfg.test_split))
+    print('Label-based evaluation: \n mA: %.4f'%(np.mean(result['label_acc'])))
+    print('Instance-based evaluation: \n Acc: %.4f, Prec: %.4f, Rec: %.4f, F1: %.4f' \
+        %(result['instance_acc'], result['instance_precision'], result['instance_recall'], result['instance_F1']))
+    for x, y in zip(train_set.dataset['att_name'], result['label_acc']):
+        print('{:<7} : {}'.format(x, y))
+    print('-' * 60)
 
 # print the model into log
-print model
+# print(model)
 # test only
 if cfg.test_only:
-    print 'test with feat_func_att'
+    print('test with feat_func_att')
     attribute_evaluate_subfunc(feat_func_att, test_set, **cfg.test_kwargs)
     sys.exit(0)
      
@@ -387,12 +391,12 @@ for epoch in range(start_epoch, cfg.total_epochs):
 
     # model ckpt
     if (epoch + 1) % cfg.epochs_per_save == 0 or epoch+1 == cfg.total_epochs:
-        ckpt_file = os.path.join(cfg.exp_dir, 'model', '2700solo_ckpt_epoch%d.pth'%(epoch+1))
+        ckpt_file = os.path.join(cfg.exp_dir, 'tmp_model', cfg.ckpt_name+'%d.pth'%(epoch+1))
         save_ckpt(modules_optims, epoch+1, 0, ckpt_file)
 
     ##########################
     # test on validation set #
     ##########################
-    if (epoch + 1) % cfg.epochs_per_val == 0 or epoch+1 == cfg.total_epochs:
-        print 'att test with feat_func_att'
+    if (epoch+1) % cfg.epochs_per_val == 0 or epoch+1 == cfg.total_epochs:
+        print('att test with feat_func_att')
         attribute_evaluate_subfunc(feat_func_att, test_set, **cfg.test_kwargs)

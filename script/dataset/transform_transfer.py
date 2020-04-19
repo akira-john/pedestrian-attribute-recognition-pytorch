@@ -2,12 +2,14 @@ import os
 import numpy as np
 import random
 #import codecs
-import cPickle as pickle
+import pickle
 from scipy.io import loadmat
 import torchvision
 
 np.random.seed(0)
 random.seed(0)
+
+label_path = '/home/dev/Documents/work/pedestrian-attribute-recognition-pytorch/pedestrian_PET.txt'
 
 def make_dir(path):
     if os.path.exists(path):
@@ -24,6 +26,7 @@ def eval_weights(labels, num_att):
         age = l % 8
         counts[age+1] += 1
     weights = [float(x)/len(labels) for x in counts]
+    # weights[0] = weights[0]/2
     return weights
 
 
@@ -33,7 +36,7 @@ def generate_data_description(save_dir):
     """
     dataset = dict()
     dataset['description'] = 'trans'
-    dataset['root'] = '/content/drive/My Drive/PET/'
+    dataset['root'] = './pedestrian_PET'
     dataset['image'] = []
     dataset['att'] = []
     dataset['att_name'] = []
@@ -41,8 +44,9 @@ def generate_data_description(save_dir):
     # load PETA.MAT
 
 
-    with open('/content/pedestrian-attribute-recognition-pytorch/labels_2700.txt') as f:
+    with open(label_path) as f:
         labels = f.readlines()
+    print(len(labels))
 
     for i in ['gender', '05', '15', '25', '35', '45', '55', '65', '75']:
         dataset['att_name'].append(i)
@@ -51,27 +55,32 @@ def generate_data_description(save_dir):
         label_lis = [0]*9
         label = int(l)
         if label > 7:
-            label_lis[0] = 0
+            label_lis[0] = 0 #Male
         else:
-            label_lis[0] = 1
+            label_lis[0] = 1 #Female
+
         age = label % 8
-        # if not age in [0, 1, 7]:
-        #     label_lis[age] = 1
-        #     label_lis[age+1] = 1
-        #     label_lis[age+2] = 1
-        # elif age == 0:
-        #     label_lis[age+1] = 1
-        # elif age == 1:
-        #     label_lis[age+1] = 1
-        #     label_lis[age+2] = 1
-        # elif age == 7:
-        #     label_lis[age] = 1
-        #     label_lis[age+1] = 1
-        label_lis[age+1] += 1
+        if not age in [0, 1, 7]:
+            label_lis[age] = 1
+            label_lis[age+1] = 1
+            label_lis[age+2] = 1
+        elif age == 0:
+            label_lis[age+1] = 1
+        elif age == 1:
+            label_lis[age+1] = 1
+            label_lis[age+2] = 1
+        elif age == 7:
+            label_lis[age] = 1
+            label_lis[age+1] = 1
+
+        # label_lis[age+1] += 1
+
         dataset['image'].append('%05d.png'%(i+1))
         dataset['att'].append(label_lis)
-        print(label_lis)
-    with open(os.path.join(save_dir, 'trans_dataset.pkl'), 'w+') as f:
+        if i < 10:
+            print(label_lis)
+    print(len(dataset['image']))
+    with open(os.path.join(save_dir, 'trans_dataset.pkl'), 'wb') as f:
         pickle.dump(dataset, f)
 
 def create_trainvaltest_split(traintest_split_file):
@@ -85,7 +94,7 @@ def create_trainvaltest_split(traintest_split_file):
     partition['test'] = []
     partition['weight_trainval'] = []
     partition['weight_train'] = []
-    with open('/content/pedestrian-attribute-recognition-pytorch/labels_2700.txt') as f:
+    with open(label_path) as f:
         labels = f.readlines()
     # load PETA.MAT
     # data = loadmat(open('./dataset/peta/PETA.mat', 'r'))
@@ -93,13 +102,13 @@ def create_trainvaltest_split(traintest_split_file):
     for idx in range(2):
         random.shuffle(items)
         s1 = len(items)*2//3
-        s2 = len(items)*5//6
+        s2 = len(items)*7//8
         train = items[:s1]
         val = items[s1:s2]
         test = items[s2:]
-        print('---train---')
-        print(len(train))
-        print(len(test))
+        print('train', len(train))
+        print('val', len(val))
+        print('test', len(test))
         trainval = train + val
         partition['train'].append(train)
         partition['val'].append(val)
@@ -112,7 +121,7 @@ def create_trainvaltest_split(traintest_split_file):
         print(weight_trainval)
         partition['weight_trainval'].append(weight_trainval)
         partition['weight_train'].append(weight_train)
-    with open(traintest_split_file, 'w+') as f:
+    with open(traintest_split_file, 'wb') as f:
         pickle.dump(partition, f)
 
 if __name__ == "__main__":

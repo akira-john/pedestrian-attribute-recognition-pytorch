@@ -2,7 +2,7 @@ import torch.utils.data as data
 import os
 from PIL import Image
 import numpy as np
-import cPickle as pickle
+import pickle
 import copy
 
 class AttDataset(data.Dataset):
@@ -19,21 +19,23 @@ class AttDataset(data.Dataset):
         target_transform=None,
         **kwargs):
         if os.path.exists( dataset ):
-            self.dataset = pickle.load(open(dataset))
+            with open(dataset, 'rb') as f:
+                self.dataset = pickle.load(f, encoding='bytes')
         else:
-            print dataset + ' does not exist in dataset.'
+            print(dataset + ' does not exist in dataset.')
             raise ValueError
         if os.path.exists( partition ):
-            self.partition = pickle.load(open(partition))
+            with open(partition, 'rb') as f:
+                self.partition = pickle.load(f, encoding='bytes')
         else:
-            print partition + ' does not exist in dataset.'
+            print(partition + ' does not exist in dataset.')
             raise ValueError
-        if not self.partition.has_key(split):
-            print split + ' does not exist in dataset.'
-            raise ValueError
+        # if not self.partition.has_key(split):
+        #     print(split + ' does not exist in dataset.')
+        #     raise ValueError
         
         if partition_idx > len(self.partition[split])-1:
-            print 'partition_idx is out of range in partition.'
+            print('partition_idx is out of range in partition.')
             raise ValueError
 
         self.transform = transform

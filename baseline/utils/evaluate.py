@@ -18,24 +18,25 @@ def extract_feat(feat_func, dataset, **kwargs):
     total_eps = len(test_loader)
     N = len(dataset.image)
     start = 0
-    for ep, (imgs, labels) in enumerate(test_loader):
-        imgs_var = Variable(imgs, volatile=True).cuda()
-        feat_tmp = feat_func( imgs_var )
-        batch_size = feat_tmp.shape[0]
-        if ep == 0:
-            feat = np.zeros((N, feat_tmp.size/batch_size))
-        feat[start:start+batch_size, :] = feat_tmp.reshape((batch_size, -1))
-        start += batch_size
+    with torch.no_grad():
+        for ep, (imgs, labels) in enumerate(test_loader):
+            imgs_var = Variable(imgs).cuda()
+            feat_tmp = feat_func( imgs_var )
+            batch_size = feat_tmp.shape[0]
+            if ep == 0:
+                feat = np.zeros((N, feat_tmp.size//batch_size))
+            feat[start:start+batch_size, :] = feat_tmp.reshape((batch_size, -1))
+            start += batch_size
     end_time = time.time() 
     print('{} batches done, total {:.2f}s'.format(total_eps, end_time-start_time))
     return feat 
 
 # attribute recognition evaluation 
 def attribute_evaluate(feat_func, dataset, **kwargs):
-    print "extracting features for attribute recognition"
+    print("extracting features for attribute recognition")
     pt_result = extract_feat(feat_func, dataset)
     # obain the attributes from the attribute dictionary
-    print "computing attribute recognition result"
+    print("computing attribute recognition result")
     N = pt_result.shape[0] 
     L = pt_result.shape[1]
     gt_result = np.zeros(pt_result.shape)
@@ -59,7 +60,7 @@ def attribute_evaluate_lidw(gt_result, pt_result):
     # obtain the label-based and instance-based accuracy
     # compute the label-based accuracy
     if gt_result.shape != pt_result.shape:
-        print 'Shape beteen groundtruth and predicted results are different'
+        print('Shape beteen groundtruth and predicted results are different')
     # compute the label-based accuracy
     result = {}
     gt_pos = np.sum((gt_result == 1).astype(float), axis=0)

@@ -1,9 +1,11 @@
 import sys
 import os
+import cv2
 import numpy as np
 import random
 import math
 from collections import OrderedDict
+import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 
@@ -11,7 +13,7 @@ import torch
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.nn.parallel import DataParallel
-import cPickle as pickle
+import pickle
 import time
 import argparse
 from PIL import Image, ImageFont, ImageDraw
@@ -36,7 +38,9 @@ class Config(object):
         # demo image
         parser.add_argument('--demo_image', type=str, default=None)
         parser.add_argument('--demo_folder', type=str, default=None)
-        parser.add_argument('--outpath', type=str, default='/content/pedestrian-attribute-recognition-pytorch/dataset/demo/output/')
+        parser.add_argument('--npy', type=str, default=None)
+        parser.add_argument('--read_csv', type=str, default=None)
+        parser.add_argument('--outpath', type=str, default='./')
         ## dataset parameter
         parser.add_argument('--dataset', type=str, default='peta',
                 choices=['peta','rap', 'pa100k'])
@@ -45,6 +49,7 @@ class Config(object):
         parser.add_argument('--model_weight_file', type=str, default='./exp/deepmar_resnet50/peta/partition0/run1/model/ckpt_epoch150.pth')
 
         parser.add_argument('--show', type=int, default=0)
+        parser.add_argument('--write', type=int, default=0)
 
         args = parser.parse_args()
         
@@ -66,7 +71,7 @@ class Config(object):
         self.model_weight_file = args.model_weight_file
         if self.load_model_weight:
             if self.model_weight_file == '':
-                print 'Please input the model_weight_file if you want to load model weight'
+                print('Please input the model_weight_file if you want to load model weight')
                 raise ValueError
         # dataset 
         datasets = dict()
@@ -87,12 +92,15 @@ class Config(object):
         else:
             self.demo_image = None
         self.image_name = args.demo_image
+        self.npy = args.npy
 
         self.demo_folder = args.demo_folder
+        self.read_csv = args.read_csv
 
         self.outpath = args.outpath
 
         self.show = args.show
+        self.write = args.write
 
         # model
         model_kwargs = dict()
@@ -153,7 +161,7 @@ if cfg.demo_image:
     # show the score in command line
     for idx in range(len(cfg.att_list)):
         if score[0, idx] >= 0:
-            print '%s: %.2f'%(cfg.att_list[idx], score[0, idx])
+            print('%s: %.2f'%(cfg.att_list[idx], score[0, idx]))
 
     # show the score in the image
     img = img.resize(size=(256, 512), resample=Image.BILINEAR)
@@ -171,11 +179,24 @@ if cfg.demo_folder:
     outpath = cfg.outpath
     age_count = [0]*8
     gender_count = [0]*2
-    label = 0
     label_count = [0]*16
+    age_box = ['05', '15', '25', '35', '45', '55', '65', '75']
     count = 0
+    if cfg.show:
+        with open('/content/pedestrian-attribute-recognition-pytorch/out_16.txt') as f:
+            labels = f.readlines()
+        gender_acc = 0
+        age_acc = {}
+        age_avg = {}
+        age_len = {}
+        for i in age_box:
+            age_len[i] = 0.0
+            age_acc[i] = 0.0
+            age_avg[i] = 0.0
+    else:
+        labels = range(len(files))
     print(len(files))
-    for file, file_name in zip(files, os.listdir(cfg.demo_folder)):
+    for file, file_name, label in zip(files, os.listdir(cfg.demo_folder), labels):
         if count % 100 == 0:
             print(count)
         if not os.path.isfile(file):
@@ -199,10 +220,19 @@ if cfg.demo_folder:
         positive_cnt = 0
         ages = np.asarray([score[0, x] for x in range(1, 9)])
         age_index = ages.argmax()
-        age_box = ['05', '15', '25', '35', '45', '55', '65', '75']
         age = age_box[age_index]
 
         gender = 'Male' if score[0, 0]<=0 else 'Female'
+        if cfg.show:
+            true_age = age_box[int(label)%8]
+            age_len[true_age] += 1.0
+            age_avg[true_age] += float(age)
+            if true_age == age:
+                age_acc[true_age] += 1
+            if (gender == 'Male' and int(label) > 7) or (gender=='Female' and int(label) <= 7):
+                gender_acc += 1
+
+
 
         if gender == 'Male':
             gender_count[0] += 1
@@ -225,19 +255,23 @@ if cfg.demo_folder:
         #     positive_cnt += 1
         # draw.text((10, 20), 'FeMale : '+str(round(score[0, 0], 2)), (100, 100, 0))
 
-        if not cfg.show:
+        if cfg.write:
             if not os.path.exists(cfg.outpath + 'Male'):
                 for i in age_box:
                     os.makedirs(cfg.outpath+'Male/' + i)
                     os.makedirs(cfg.outpath+'Female/'+i)
-            img.save(cfg.outpath + gender + '/' + age + '/' + file_name[:-4] + '_result.png')
+            img.save('{}{}/{}/{}_result.png'.format(cfg.outpath, gender, age, file_name[:-4]))
 
         count += 1
+    if cfg.show:
+        accuracy = float(gender_acc) / float(len(labels))
+        print('gender_acc :', accuracy)
+        for i in age_box:
+            if age_len[i] == 0:
+                continue
+            print(i, 'pred_avg {} :'.format(age_avg[i]/age_len[i]), 'age_acc  {} :'.format(age_acc[i]/age_len[i]))
 
     if cfg.show:
-
-        with open('/content/pedestrian-attribute-recognition-pytorch/labels_street10.txt') as f:
-            labels = f.readlines()
         print(len(labels))
         t_age_count = [0]*8
         t_gender_count = [0]*2
@@ -264,5 +298,47 @@ if cfg.demo_folder:
         plt.bar([x+0.2 for x in range(16)], t_label_count, width=0.4)
         plt.legend()
         plt.savefig('pred_' + str(datetime.now())[-6:])
+
+
+if cfg.read_csv:
+    num_files = np.load(cfg.read_csv[:-4]+'.npy', allow_pickle=True)
+    atts = []
+    # if not os.path.exists(cfg.outpath):
+    #     os.mkdir(cfg.outpath)
+    for i, file in enumerate(num_files):
+        if file is None:
+            atts.append([None, None])
+            continue
+        file = cv2.cvtColor(file, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(np.uint8(file))
+        img_trans = test_transform( img ) 
+        img_trans = torch.unsqueeze(img_trans, dim=0)
+        img_var = Variable(img_trans).cuda()
+        score = model(img_var).data.cpu().numpy()
+        img = img.resize(size=(256, 512), resample=Image.BILINEAR)
+        draw = ImageDraw.Draw(img)
+        ages = np.asarray([score[0, x] for x in range(1, 9)])
+        age_index = ages.argmax()
+        age_box = ['05', '15', '25', '35', '45', '55', '65', '75']
+        age = age_box[age_index]
+
+        gender = 'Male' if score[0, 0]<=0 else 'Female'
+        if cfg.write:
+            img_path = os.path.join(cfg.outpath, gender+'_'+age+'_'+str(i)+'_result.png')
+            img.save(img_path)
+        atts.append([gender, age])
+
+
+    df_att = pd.DataFrame(atts)
+    columns = ['gender', 'age']
+    df_att.columns = columns
+    df = pd.read_pickle(cfg.read_csv)
+    df_attributes = pd.concat([df, df_att], axis=1)
+    file_name = cfg.read_csv[-32:-10]
+    df_attributes.to_csv('../csv_files/{}df_attributes.csv'.format(file_name), index=False, encoding='utf-8')
+
+
+
+
 
 
